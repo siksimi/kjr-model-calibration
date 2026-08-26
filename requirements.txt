@@ -1,0 +1,8 @@
+# Pinned to the versions the published numbers were produced and verified with.
+# Nearby versions will almost certainly work, but the figures and the last
+# decimal place of the reported metrics are only guaranteed against these.
+numpy==2.4.4
+scipy==1.17.1
+scikit-learn==1.8.0
+statsmodels==0.14.6
+matplotlib==3.10.9

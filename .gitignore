@@ -1,0 +1,17 @@
+# Rendered outputs. Regenerate with 03_render_figure.py.
+Fig1_calibration.pdf
+Fig1_calibration.png
+*_GRAYSCALE.png
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

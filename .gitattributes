@@ -1,0 +1,9 @@
+# Normalise line endings so a clone behaves the same on Windows, macOS and Linux.
+# Text is stored with LF in the repository and checked out natively.
+* text=auto eol=lf
+
+# Never let these be touched by end-of-line conversion.
+*.png binary
+*.pdf binary
+*.tif binary
+*.ttf binary
