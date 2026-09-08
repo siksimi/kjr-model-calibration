@@ -10,8 +10,10 @@ abstract: >-
   rank-preserving transformation, so that discrimination is held exactly
   constant while calibration is varied.
 type: software
+doi: 10.5281/zenodo.22108983
+repository-code: https://github.com/siksimi/kjr-model-calibration
 version: 1.1.0
-date-released: "2026-09-07"
+date-released: "2026-09-08"
 license: MIT
 authors:
   - family-names: Myong

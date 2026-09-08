@@ -1,5 +1,7 @@
 # Simulation code
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22108983.svg)](https://doi.org/10.5281/zenodo.22108983)
+
 Supplementary code for **Uncover This Tech Term: Model Calibration**
 (*Korean Journal of Radiology*), by Youho Myong
 ([0000-0002-2469-839X](https://orcid.org/0000-0002-2469-839X)), Soomin Jeon
@@ -195,6 +197,21 @@ order, Arial first. The script prints which face it actually resolved and warns
 if it had to fall back to DejaVu Sans, so a submission figure cannot go out in
 the wrong face unnoticed. Liberation Sans is metrically compatible with Arial and
 is an acceptable stand-in on Linux.
+
+## Citing this code
+
+Archived on Zenodo. The concept DOI below always resolves to the most recent
+version, which is what the article cites.
+
+```
+Myong Y, Jeon S, Sim Y. Simulation code for "Uncover This Tech Term: Model
+Calibration". Zenodo; 2026. https://doi.org/10.5281/zenodo.22108983
+```
+
+| | DOI |
+|---|---|
+| All versions (concept) | [10.5281/zenodo.22108983](https://doi.org/10.5281/zenodo.22108983) |
+| v1.1.0 | [10.5281/zenodo.22651488](https://doi.org/10.5281/zenodo.22651488) |
 
 ## Licence
 
