@@ -4,20 +4,23 @@ Step 3 of 3. Render Figure 1 as a vector PDF and a 300 dpi PNG.
 Uncover This Tech Term: Model Calibration (Korean Journal of Radiology)
 
 The cohort and the four models are generated exactly as in 02_simulate_metrics.py,
-so the figure and the reported numbers cannot drift apart.
+so the figure and the reported numbers cannot drift apart. In particular the
+intercept update for C* is estimated in the separate recalibration cohort
+(RECAL_SEED) and applied to the reported cohort, exactly as in that script.
 
-Panel (a), identical discrimination
+Panel (A), identical discrimination
     The three receiver operating characteristic curves are drawn on top of one
     another with decreasing line width, 3.2 then 1.9 then 0.9 points. Plotting
     them this way is what lets a reader see that the curves genuinely coincide
-    rather than merely share a summary statistic.
+    rather than merely share a summary statistic. A small box states the two
+    transformations on the logit scale, so the figure is self-contained.
 
-Panel (b), different calibration
+Panel (B), different calibration
     Four series are shown. Model C* is drawn as a large open square and model A
     as a small filled circle placed on top of it, so that the recalibrated model
-    is visibly sitting exactly on the well calibrated one. A horizontal arrow in
-    the top decile marks the intercept update. The arrow is exactly horizontal
-    because the observed proportion is identical across models, the ranking being
+    is visibly sitting on the well calibrated one. A horizontal arrow in the top
+    decile marks the intercept update. The arrow is exactly horizontal because
+    the observed proportion is identical across models, the ranking being
     preserved.
 
 Colour
@@ -59,7 +62,7 @@ from scipy.optimize import brentq
 from sklearn.metrics import roc_auc_score, roc_curve
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
-SEED, N = 4979, 5000
+SEED, RECAL_SEED, N = 4979, 1, 5000
 A_INT, B_SLP, SPREAD_K, SHIFT_C = -1.826, 1.341, 2.5, 1.2
 OUTPUT_STEM = "Fig1_calibration"
 SHOW_CONFIDENCE_INTERVALS = True
@@ -111,19 +114,25 @@ def cal_slope(y, p, iters=200, tol=1e-13):
 
 
 # --------------------------------------------------------------- cohort
-rng = np.random.default_rng(SEED)
-z = rng.normal(size=N)
-lt = A_INT + B_SLP * z
-p_true = expit(lt)
-y = rng.binomial(1, p_true)
+def simulate(seed):
+    """One cohort with models A, B and C, as in 02_simulate_metrics.py."""
+    rng = np.random.default_rng(seed)
+    z = rng.normal(size=N)
+    lt = A_INT + B_SLP * z
+    p_true = expit(lt)
+    y = rng.binomial(1, p_true)
+    mean_lt = lt.mean()
+    shift = brentq(lambda c: expit(c + SPREAD_K * (lt - mean_lt)).mean() - p_true.mean(),
+                   -30, 30)
+    return y, p_true, expit(shift + SPREAD_K * (lt - mean_lt)), expit(lt + SHIFT_C)
 
-mean_lt = lt.mean()
-shift = brentq(lambda c: expit(c + SPREAD_K * (lt - mean_lt)).mean() - p_true.mean(),
-               -30, 30)
-pA = p_true
-pB = expit(shift + SPREAD_K * (lt - mean_lt))
-pC = expit(lt + SHIFT_C)
-pCs = expit(cal_intercept(y, pC) + logit(pC))
+
+y, pA, pB, pC = simulate(SEED)
+
+# The intercept update is estimated in a separate cohort and applied here, so
+# what the figure shows for C* is out-of-sample with respect to the update.
+y_recal, _, _, pC_recal = simulate(RECAL_SEED)
+pCs = expit(cal_intercept(y_recal, pC_recal) + logit(pC))
 
 # --------------------------------------------------------------- style
 OK_BLUE, OK_VERM, OK_GREEN = "#0072B2", "#D55E00", "#009E73"
@@ -213,10 +222,18 @@ def build(with_ci, path_stem):
     ax1.set_xlabel("1 − specificity")
     ax1.set_ylabel("Sensitivity")
     ax1.set_title("Identical discrimination", pad=6, loc="left", fontweight="bold")
+    box = dict(boxstyle="round,pad=0.35", fc="white", ec="#cccccc", lw=0.6)
     ax1.text(0.97, 0.06, f"AUC = {roc_auc_score(y, pA):.3f}\nfor all models",
-             ha="right", va="bottom", fontsize=7.5, color=INK,
-             bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="#cccccc", lw=0.6))
-    ax1.text(-0.20, 1.06, "(a)", transform=ax1.transAxes,
+             ha="right", va="bottom", fontsize=7.5, color=INK, bbox=box)
+    # The two transformations, stated on the logit scale so a reader can see
+    # at a glance that both are strictly increasing. The constant c is chosen
+    # so that model B keeps the same mean predicted probability as model A.
+    ax1.text(0.97, 0.30,
+             "$\\mathrm{B}:\\ \\mathrm{logit}\\,p \\rightarrow 2.5\\,\\mathrm{logit}\\,p + c$\n"
+             "$\\mathrm{C}:\\ \\mathrm{logit}\\,p \\rightarrow \\mathrm{logit}\\,p + 1.2$",
+             ha="right", va="bottom", multialignment="left", fontsize=7, color=INK,
+             linespacing=1.5, bbox=box)
+    ax1.text(-0.20, 1.06, "(A)", transform=ax1.transAxes,
              fontsize=10, fontweight="bold", va="top")
     ax1.legend(loc="upper left", frameon=False, handlelength=2.4,
                borderaxespad=0.4, labelspacing=0.35,
@@ -266,13 +283,17 @@ def build(with_ci, path_stem):
     ax2.annotate("", xy=(x_cs + 0.030, y_c), xytext=(x_c - 0.030, y_c),
                  arrowprops=dict(arrowstyle="-|>", color="#333333", lw=0.9,
                                  shrinkA=0, shrinkB=0, mutation_scale=8), zorder=9)
-    ax2.text((x_c + x_cs) / 2 - 0.03, y_c + 0.032, "intercept update",
-             ha="center", va="bottom", fontsize=6.6, color="#333333", style="italic")
+    # The label sits below the arrow, on two lines, in the open region between
+    # the A/C* curves and the C curve, and is drawn above every series so that no
+    # curve runs across the letters.
+    ax2.text((x_c + x_cs) / 2 - 0.02, y_c - 0.030, "intercept\nupdate",
+             ha="center", va="top", fontsize=6.6, color="#333333", style="italic",
+             linespacing=1.1, zorder=10)
 
     ax2.set_xlabel("Predicted probability")
     ax2.set_ylabel("Observed proportion")
     ax2.set_title("Different calibration", pad=6, loc="left", fontweight="bold")
-    ax2.text(-0.20, 1.06, "(b)", transform=ax2.transAxes,
+    ax2.text(-0.20, 1.06, "(B)", transform=ax2.transAxes,
              fontsize=10, fontweight="bold", va="top")
     legend = ax2.legend(handles=handles, loc="upper left", frameon=False,
                         handlelength=2.4, borderaxespad=0.4, labelspacing=0.4,

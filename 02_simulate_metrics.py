@@ -35,11 +35,24 @@ Model B is also passed through the same intercept update, reported as B*, to
 show that the correction leaves a slope failure untouched. That contrast is the
 point of the "Can it be fixed?" section of the article.
 
+Where the intercept update comes from
+-------------------------------------
+The update is estimated in a separate simulated cohort, drawn from the same
+data-generating model with a different seed, and then applied to the cohort
+that is reported. Estimating it in the reported cohort itself would drive the
+expected-to-observed ratio to exactly 1.00 by construction and would read as an
+out-of-sample result when it is not one. With the separate cohort the ratio
+lands at 1.02, which is the honest figure and is the one the article quotes.
+The article also states that recalibration parameters should be estimated in
+data not used to fit the original model, and the example now follows its own
+advice.
+
 A note on the constants
 -----------------------
 The coefficients and the seed come from 01_tune_parameters.py. Seed 4979 gives a
 draw with exactly 1,000 events out of 5,000 and a sample AUC of 0.8000, which
-was chosen for clarity of exposition and is stated as such in the article.
+was chosen for clarity of exposition and is stated as such in the article. The
+recalibration cohort uses seed 1, the first seed, and was not tuned.
 
 Usage
 -----
@@ -51,6 +64,7 @@ from scipy.optimize import brentq
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
 SEED = 4979
+RECAL_SEED = 1                          # separate cohort for the intercept update, not tuned
 N = 5000
 A_INTERCEPT, B_SLOPE = -1.826, 1.341   # logit(p_true) = a + b * z
 SPREAD_K = 2.5                          # model B, how far probabilities are spread
@@ -111,20 +125,22 @@ def calibration_intercept_slope(y, p):
     return intercept, slope
 
 
-def recalibrate_intercept(y, p):
+def apply_intercept_update(p, intercept):
     """Logistic recalibration with the slope held at 1, that is, an intercept
     update. Because it adds a constant on the logit scale it preserves the
-    ranking of patients and therefore leaves the AUC untouched.
-
-    For illustration this is estimated in the same cohort. In practice an
-    independent sample is required, and the article says so.
-    """
-    intercept, _ = calibration_intercept_slope(y, p)
+    ranking of patients and therefore leaves the AUC untouched."""
     return expit(intercept + logit(np.clip(p, 1e-12, 1 - 1e-12)))
 
 
-def make_cohort():
-    rng = np.random.default_rng(SEED)
+def simulate(seed):
+    """Draw one cohort and build models A, B and C on it.
+
+    The three models are fixed transformations of the true probability, so
+    they need no fitting and the same construction applies to any cohort drawn
+    from the data-generating model. Returns the outcome vector and the three
+    probability vectors.
+    """
+    rng = np.random.default_rng(seed)
     z = rng.normal(size=N)
     lt = A_INTERCEPT + B_SLOPE * z
     p_true = expit(lt)
@@ -135,7 +151,8 @@ def make_cohort():
     # Model B. Spread the logits around their own mean so that the average
     # predicted probability is preserved. Without this recentring the model
     # would fail on both the intercept and the slope, and the two failure modes
-    # would no longer be cleanly separated.
+    # would no longer be cleanly separated. On the logit scale this is
+    # logit(p_b) = SPREAD_K * logit(p_a) + c, with c solved numerically.
     mean_lt = lt.mean()
     shift = brentq(
         lambda c: expit(c + SPREAD_K * (lt - mean_lt)).mean() - p_a.mean(),
@@ -145,14 +162,31 @@ def make_cohort():
     # Model C. A pure shift on the logit scale, which leaves the slope at 1.
     p_c = expit(lt + SHIFT_C)
 
+    return y, p_a, p_b, p_c
+
+
+def make_cohort():
+    """Build the reported cohort (seed 4979) with all five models.
+
+    The intercept updates for C* and B* are estimated in a separate cohort
+    (RECAL_SEED) and then applied here, so the recalibrated metrics printed
+    for this cohort are out-of-sample with respect to the update.
+    """
+    y, p_a, p_b, p_c = simulate(SEED)
+
+    y_recal, _, p_b_recal, p_c_recal = simulate(RECAL_SEED)
+    update_c, _ = calibration_intercept_slope(y_recal, p_c_recal)
+    update_b, _ = calibration_intercept_slope(y_recal, p_b_recal)
+
     models = {
         "A  well calibrated": p_a,
         "B  overconfident": p_b,
         "C  over-estimating": p_c,
-        "C* C recalibrated": recalibrate_intercept(y, p_c),
-        "B* B recalibrated": recalibrate_intercept(y, p_b),
+        "C* C recalibrated": apply_intercept_update(p_c, update_c),
+        "B* B recalibrated": apply_intercept_update(p_b, update_b),
     }
-    return y, models
+    recal_info = {"events": int(y_recal.sum()), "update_c": update_c, "update_b": update_b}
+    return y, models, recal_info
 
 
 def expected_calibration_error(y, p, bins=10):
@@ -200,9 +234,11 @@ def decile_points(y, p, bins=10):
 
 
 def main():
-    y, models = make_cohort()
+    y, models, recal = make_cohort()
     prevalence = y.mean()
-    print(f"n = {N}   events = {y.sum()}   observed event rate = {prevalence:.4f}\n")
+    print(f"n = {N}   events = {y.sum()}   observed event rate = {prevalence:.4f}")
+    print(f"recalibration cohort (seed {RECAL_SEED}): n = {N}   events = {recal['events']}   "
+          f"intercept update for C = {recal['update_c']:+.3f}, for B = {recal['update_b']:+.3f}\n")
 
     print("=== Performance measures ===")
     print(f"{'model':22s}{'AUC':>9}{'Brier':>9}{'E/O':>7}"
@@ -213,7 +249,9 @@ def main():
               f"{p.mean() / prevalence:7.2f}{intercept:10.3f}{slope:11.3f}"
               f"{expected_calibration_error(y, p):8.3f}")
     print("\nNote how B* differs from B only in the intercept. An intercept "
-          "update cannot repair a slope failure.")
+          "update cannot repair a slope failure.\nThe C* and B* rows are "
+          "out-of-sample with respect to the update, which was estimated in "
+          "the recalibration cohort.")
 
     print("\n=== Brier score decomposition (20 equal-size bins) ===")
     print(f"{'model':22s}{'reliability':>13}{'resolution':>12}{'uncertainty':>13}")
