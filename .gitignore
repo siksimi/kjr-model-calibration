@@ -1,7 +1,9 @@
 # Rendered outputs. Regenerate with 03_render_figure.py.
-Fig1_calibration.pdf
-Fig1_calibration.png
-*_GRAYSCALE.png
+Fig_1A.jpg
+Fig_1A.tif
+Fig_1B.jpg
+Fig_1B.tif
+figures/
 
 # Python
 __pycache__/

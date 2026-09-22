@@ -1,5 +1,7 @@
 """
-Step 3 of 3. Render Figure 1 as a vector PDF and a 300 dpi PNG.
+Step 3 of 3. Render Figure 1A and 1B as separate 300 dpi JPG/TIF files.
+
+Each file has a 3.55 x 3.55 inch canvas (1065 x 1065 pixels).
 
 Uncover This Tech Term: Model Calibration (Korean Journal of Radiology)
 
@@ -33,7 +35,7 @@ Colour
 
 Print safety
     Series are separated by marker shape and line pattern as well as by colour,
-    so the figure survives greyscale reproduction. Converting the PNG to
+    so the figure survives greyscale reproduction. Converting the TIFF to
     greyscale is a quick way to confirm this.
 
 Two details that are easy to get wrong
@@ -48,8 +50,11 @@ Two details that are easy to get wrong
 
 Usage
 -----
-    python 03_render_figure.py
+    python 03_render_figure.py --output-dir figures
 """
+
+import argparse
+from pathlib import Path
 
 import matplotlib
 
@@ -58,13 +63,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
+from PIL import Image
 from scipy.optimize import brentq
 from sklearn.metrics import roc_auc_score, roc_curve
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
 SEED, RECAL_SEED, N = 4979, 1, 5000
 A_INT, B_SLP, SPREAD_K, SHIFT_C = -1.826, 1.341, 2.5, 1.2
-OUTPUT_STEM = "Fig1_calibration"
+OUTPUT_DPI = 300
+PANEL_SIZE_INCHES = (3.55, 3.55)
 SHOW_CONFIDENCE_INTERVALS = True
 
 # Fonts are tried in order and the first one installed is used. Arial or
@@ -207,10 +214,8 @@ def square(ax):
     ax.set_axisbelow(True)
 
 
-def build(with_ci, path_stem):
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.09, 3.55))
-
-    # ---------------------------------------------------- panel (a)
+def draw_discrimination(ax1):
+    """Draw the ROC panel."""
     square(ax1)
     ax1.plot([0, 1], [0, 1], color=MUTED, lw=0.7, ls=(0, (1, 2)), zorder=1)
     roc_style = {"A": "-", "B": (0, (5, 2)), "C": (0, (1.2, 1.6))}
@@ -233,14 +238,13 @@ def build(with_ci, path_stem):
              "$\\mathrm{C}:\\ \\mathrm{logit}\\,p \\rightarrow \\mathrm{logit}\\,p + 1.2$",
              ha="right", va="bottom", multialignment="left", fontsize=7, color=INK,
              linespacing=1.5, bbox=box)
-    ax1.text(-0.20, 1.06, "(A)", transform=ax1.transAxes,
-             fontsize=10, fontweight="bold", va="top")
     ax1.legend(loc="upper left", frameon=False, handlelength=2.4,
                borderaxespad=0.4, labelspacing=0.35,
                title="three curves superimposed", title_fontsize=6.5,
                alignment="left")
 
-    # ---------------------------------------------------- panel (b)
+def draw_calibration(ax2, with_ci):
+    """Draw the calibration panel."""
     square(ax2)
     ax2.plot([0, 1], [0, 1], color=MUTED, lw=0.7, ls=(0, (1, 2)), zorder=1)
 
@@ -293,19 +297,51 @@ def build(with_ci, path_stem):
     ax2.set_xlabel("Predicted probability")
     ax2.set_ylabel("Observed proportion")
     ax2.set_title("Different calibration", pad=6, loc="left", fontweight="bold")
-    ax2.text(-0.20, 1.06, "(B)", transform=ax2.transAxes,
-             fontsize=10, fontweight="bold", va="top")
     legend = ax2.legend(handles=handles, loc="upper left", frameon=False,
                         handlelength=2.4, borderaxespad=0.4, labelspacing=0.4,
                         title="model   (calibration intercept, slope)",
                         title_fontsize=6.5, alignment="left")
     legend.set_zorder(20)
 
-    fig.subplots_adjust(left=0.075, right=0.995, top=0.90, bottom=0.13, wspace=0.28)
-    for ext, dpi in (("pdf", None), ("png", 300)):
-        fig.savefig(f"{path_stem}.{ext}", dpi=dpi, bbox_inches="tight", pad_inches=0.02)
-    plt.close(fig)
-    print(f"saved {path_stem}.pdf and {path_stem}.png")
+def make_panel(panel, with_ci=SHOW_CONFIDENCE_INTERVALS):
+    """Build a standalone panel at its final physical size and resolution."""
+    if panel not in ("A", "B"):
+        raise ValueError("panel must be 'A' or 'B'")
+    fig, ax = plt.subplots(figsize=PANEL_SIZE_INCHES, dpi=OUTPUT_DPI)
+    if panel == "A":
+        draw_discrimination(ax)
+    else:
+        draw_calibration(ax, with_ci)
+    # Identical canvases/margins align the axes when the two files are placed
+    # side by side. Render directly at 300 dpi, without resizing raster output.
+    fig.subplots_adjust(left=0.17, right=0.98, top=0.90, bottom=0.15)
+    return fig, ax
+
+
+def save_panel(fig, path_stem):
+    """Encode one rendered canvas as RGB JPEG and lossless LZW TIFF."""
+    fig.canvas.draw()
+    raster = Image.fromarray(np.asarray(fig.canvas.buffer_rgba())).convert("RGB")
+    expected_size = tuple(round(inches * OUTPUT_DPI) for inches in PANEL_SIZE_INCHES)
+    if raster.size != expected_size:
+        raise RuntimeError(f"Unexpected canvas size: {raster.size}")
+    raster.save(f"{path_stem}.jpg", quality=95, subsampling=0,
+                dpi=(OUTPUT_DPI, OUTPUT_DPI))
+    raster.save(f"{path_stem}.tif", compression="tiff_lzw",
+                dpi=(OUTPUT_DPI, OUTPUT_DPI))
+    print(f"saved {path_stem}.jpg and {path_stem}.tif "
+          f"({raster.width} x {raster.height} pixels, {OUTPUT_DPI} dpi)")
+
+
+def build(with_ci=SHOW_CONFIDENCE_INTERVALS, output_dir="."):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for panel in ("A", "B"):
+        fig, _ax = make_panel(panel, with_ci=with_ci)
+        try:
+            save_panel(fig, output_dir / f"Fig_1{panel}")
+        finally:
+            plt.close(fig)
 
 
 def report_font():
@@ -313,7 +349,10 @@ def report_font():
     rendered in the fallback font unnoticed."""
     from matplotlib.font_manager import findfont, FontProperties
     resolved = findfont(FontProperties(family=FONT_CANDIDATES))
-    name = resolved.rsplit("/", 1)[-1]
+    name = Path(resolved).name
+    # Once selected, use the installed face directly instead of repeatedly
+    # asking the renderer to resolve unavailable fallback families.
+    plt.rcParams["font.family"] = [FontProperties(fname=resolved).get_name()]
     print(f"font resolved to {name}")
     if "DejaVu" in name:
         print("  WARNING: falling back to DejaVu Sans. Install Arial or "
@@ -321,5 +360,9 @@ def report_font():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument("--output-dir", type=Path, default=Path.cwd(),
+                        help="Directory for Fig_1A/1B JPG/TIF files (default: current directory)")
+    args = parser.parse_args()
     report_font()
-    build(with_ci=SHOW_CONFIDENCE_INTERVALS, path_stem=OUTPUT_STEM)
+    build(with_ci=SHOW_CONFIDENCE_INTERVALS, output_dir=args.output_dir)

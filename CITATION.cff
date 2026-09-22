@@ -12,8 +12,8 @@ abstract: >-
 type: software
 doi: 10.5281/zenodo.22108983
 repository-code: https://github.com/siksimi/kjr-model-calibration
-version: 1.1.0
-date-released: "2026-09-08"
+version: 1.2.0
+date-released: "2026-09-22"
 license: MIT
 authors:
   - family-names: Myong
